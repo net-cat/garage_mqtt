@@ -19,12 +19,15 @@ struct endl_t {} endl;
 
 const char WIFI_SSID[] = _WIFI_SSID;
 const char WIFI_PASSPHRASE[] = _WIFI_PASSPHRASE;
+constexpr unsigned short WIFI_STATUS_PIN = _WIFI_STATUS_PIN;
 
 const char MQTT_HOST[] = _MQTT_HOST;
 const uint16_t MQTT_PORT = _MQTT_PORT;
 const char MQTT_USER[] = _MQTT_USER;
 const char MQTT_PASSWORD[] = _MQTT_PASSWORD;
 const char MQTT_CLIENT_ID[] = _MQTT_CLIENT_ID;
+
+constexpr unsigned int AVAILABILITY_BROADCAST_DURATION = _AVAILABILITY_BROADCAST_DURATION;
 
 /* Constants */
 
@@ -41,7 +44,7 @@ static const char AVAILABILITY_ONLINE[] = "online";
 static const char AVAILABILITY_OFFLINE[] = "offline";
 
 constexpr unsigned int INVALID_PIN = static_cast<unsigned int>(-1);
-  
+
 /* Hi. Did you know that Arduino coding is C++? This block is here to remind you of that! */
 
 template<typename T>
@@ -109,21 +112,39 @@ const char* payload_to_cmd(byte* payload, unsigned int len)
   return nullptr;
 }
 
-void connect_wifi()
+void connect_wifi(bool do_setup=false)
 {
-  Serial << endl << endl;
-  Serial << "Connecting to " << WIFI_SSID << endl;
-  
-  WiFi.begin(WIFI_SSID, WIFI_PASSPHRASE);
-
-  while(WiFi.status() != WL_CONNECTED)
+  if(WIFI_STATUS_PIN && do_setup)
   {
-    delay(500);
-    Serial << ".";
+    pinMode(WIFI_STATUS_PIN, OUTPUT);
   }
 
-  Serial << " done!" << endl;
-  Serial << "IP Address: " << WiFi.localIP() << endl;
+  if(do_setup || WiFi.status() != WL_CONNECTED)
+  {
+    if(WIFI_STATUS_PIN)
+    {
+      digitalWrite(WIFI_STATUS_PIN, LOW);
+    }
+
+    Serial << endl << endl;
+    Serial << "Connecting to " << WIFI_SSID << endl;
+
+    WiFi.begin(WIFI_SSID, WIFI_PASSPHRASE);
+
+    while(WiFi.status() != WL_CONNECTED)
+    {
+      delay(500);
+      Serial << ".";
+    }
+
+    Serial << " done!" << endl;
+    Serial << "IP Address: " << WiFi.localIP() << endl;
+  }
+
+  if(WIFI_STATUS_PIN)
+  {
+    digitalWrite(WIFI_STATUS_PIN, HIGH);
+  }
 }
 
 /* MQTT Logic */
@@ -152,6 +173,13 @@ public:
   {
     _reconnect();
     m_client.loop();
+
+    MQTTManager* curr = m_head;
+    while(curr)
+    {
+      curr->_loop();
+      curr = curr->m_next;
+    }
   }
 
   MQTTManager(const char* device_name, callback_t callback_func, void* user_data) :
@@ -195,7 +223,7 @@ public:
 
   void publish_availability(bool online)
   {
-    m_client.publish(m_availability_topic, online ? AVAILABILITY_ONLINE : AVAILABILITY_OFFLINE);
+    m_current_availability = online;
   }
 
   ~MQTTManager()
@@ -237,6 +265,9 @@ private:
   MQTTManager* m_next;
   callback_t m_callback;
   void* m_user_data;
+  bool m_last_availability_broadcast = false;
+  unsigned int m_last_availability_broadcast_time = 0;
+  bool m_current_availability = false;
 
   void _setup()
   {
@@ -256,6 +287,22 @@ private:
     Serial << "MQTT Device:   " << m_device_name << endl;
     Serial << "Command Topic: " << m_cmd_topic << endl;
     Serial << "State Topic:   " << m_state_topic << endl;
+  }
+
+  void _loop()
+  {
+    unsigned int current_time = millis();
+    if(current_time < m_last_availability_broadcast && current_time < AVAILABILITY_BROADCAST_DURATION) // millis() wrapped around
+    {
+      m_last_availability_broadcast = 0;
+    }
+    else if(m_last_availability_broadcast != m_current_availability || m_last_availability_broadcast + AVAILABILITY_BROADCAST_DURATION < current_time)
+    {
+      m_client.publish(m_availability_topic, m_current_availability ? AVAILABILITY_ONLINE : AVAILABILITY_OFFLINE);
+      m_last_availability_broadcast = m_current_availability;
+      m_last_availability_broadcast = m_last_availability_broadcast;
+      Serial << "Availability is now: " << m_current_availability << endl;
+    }
   }
 
   static void _callback(char* topic, byte* payload, unsigned int payload_len)
@@ -347,8 +394,8 @@ public:
       return;
     }
 
-    bool door_closed = digitalRead(m_closed_pin);
-    bool door_open = m_open_pin == INVALID_PIN ? !door_closed : digitalRead(m_open_pin);
+    bool door_closed = !digitalRead(m_closed_pin);
+    bool door_open = m_open_pin == INVALID_PIN ? !door_closed : !digitalRead(m_open_pin);
 
     const char* last_state = m_current_state;
     const char* last_command = m_issued_command;
@@ -357,8 +404,13 @@ public:
     if(door_open && door_closed)
     {
       Serial << "DoorStateMachine: GPIO is reporting that door is both open and closed. Check your sensors." << endl;
+      m_mqtt_manager.publish_availability(false);
       delay(1000);
       return;
+    }
+    else
+    {
+      m_mqtt_manager.publish_availability(true);
     }
 
     if(door_open)
@@ -501,7 +553,7 @@ public:
   {
     const char* cmd = payload_to_cmd(payload, payload_len);
     DoorStateMachine* self = reinterpret_cast<DoorStateMachine*>(this_ptr);
-  
+
     if(cmd == CMD_OPEN)
     {
       Serial << "MQTT: Open Requested" << endl;
@@ -553,7 +605,7 @@ void setup()
   Serial.begin(115200);
   Serial << "Initializing..." << endl;
 
-  connect_wifi();
+  connect_wifi(true);
 
   MQTTManager::setup();
   for(int i = 0; i < NUM_DOORS; ++i)
@@ -566,6 +618,7 @@ void setup()
 
 void loop()
 {
+  connect_wifi();
   MQTTManager::loop();
   for(int i = 0; i < NUM_DOORS; ++i)
   {
