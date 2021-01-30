@@ -183,8 +183,8 @@ public:
   }
 
   MQTTManager(const char* device_name, callback_t callback_func, void* user_data) :
-    m_next(m_head),
     m_device_name(strdup(device_name)),
+    m_next(m_head),
     m_callback(callback_func),
     m_user_data(user_data)
   {
@@ -360,11 +360,11 @@ public:
   };
 
  DoorStateMachine(const char* device_name, const unsigned int relay_pin, const unsigned int closed_pin, const unsigned int open_pin = INVALID_PIN, const unsigned int stop_relay_pin = INVALID_PIN) :
+    m_mqtt_manager(device_name, mqtt_callback, this),
     m_relay_pin(relay_pin),
     m_closed_pin(closed_pin),
     m_open_pin(open_pin),
-    m_stop_relay_pin(stop_relay_pin),
-    m_mqtt_manager(device_name, mqtt_callback, this)
+    m_stop_relay_pin(stop_relay_pin)
   {
   }
 
@@ -530,7 +530,7 @@ public:
   {
     Serial << "DoorStateMachine: Relay Pulsed (Pin: " << m_relay_pin << ")" << endl;
     digitalWrite(m_relay_pin, HIGH);
-    delay(100);
+    delay(250);
     digitalWrite(m_relay_pin, LOW);
   }
 
@@ -540,12 +540,12 @@ public:
     if(m_stop_relay_pin != INVALID_PIN)
     {
       digitalWrite(m_stop_relay_pin, HIGH);
-      delay(100);
+      delay(250);
       digitalWrite(m_stop_relay_pin, LOW);
     }
     else
     {
-      delay(100);
+      delay(250);
     }
   }
 

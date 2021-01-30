@@ -8,7 +8,7 @@
 
 #define _WIFI_SSID "your wifi ssid";
 #define _WIFI_PASSPHRASE "your wifi passphrase";
-#define _WIFI_STATUS_PIN 12
+#define _WIFI_STATUS_PIN 2
 
 #define _MQTT_HOST "your.mqtt.broker.example.com";
 #define _MQTT_PORT 1883;
