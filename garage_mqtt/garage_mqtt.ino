@@ -121,7 +121,7 @@ void connect_wifi(bool do_setup=false)
 
   if(do_setup || WiFi.status() != WL_CONNECTED)
   {
-    if(WIFI_STATUS_PIN)
+    if (WIFI_STATUS_PIN)
     {
       digitalWrite(WIFI_STATUS_PIN, LOW);
     }
@@ -141,10 +141,20 @@ void connect_wifi(bool do_setup=false)
     Serial << "IP Address: " << WiFi.localIP() << endl;
   }
 
-  if(WIFI_STATUS_PIN)
+  if (WIFI_STATUS_PIN)
   {
     digitalWrite(WIFI_STATUS_PIN, HIGH);
   }
+}
+
+void disconnect_wifi()
+{
+  if (WIFI_STATUS_PIN)
+  {
+    digitalWrite(WIFI_STATUS_PIN, LOW);
+  }
+  WiFi.disconnect();
+  delay(1000);
 }
 
 /* MQTT Logic */
@@ -175,10 +185,15 @@ public:
     m_client.loop();
 
     MQTTManager* curr = m_head;
-    while(curr)
+    while(curr && m_last_publish_successful)
     {
       curr->_loop();
       curr = curr->m_next;
+    }
+
+    if(!m_last_publish_successful)
+    {
+      m_client.disconnect();
     }
   }
 
@@ -218,12 +233,17 @@ public:
 
   void publish_state(const char* state)
   {
-    m_client.publish(m_state_topic, state);
+    m_last_publish_successful = m_client.publish(m_state_topic, state);
   }
 
   void publish_availability(bool online)
   {
     m_current_availability = online;
+  }
+
+  static bool connected()
+  {
+    return m_client.connected() && m_last_publish_successful;
   }
 
   ~MQTTManager()
@@ -268,6 +288,7 @@ private:
   bool m_last_availability_broadcast = false;
   unsigned int m_last_availability_broadcast_time = 0;
   bool m_current_availability = false;
+  static bool m_last_publish_successful;
 
   void _setup()
   {
@@ -296,11 +317,11 @@ private:
     {
       m_last_availability_broadcast = 0;
     }
-    else if(m_last_availability_broadcast != m_current_availability || m_last_availability_broadcast + AVAILABILITY_BROADCAST_DURATION < current_time)
+    else if(m_last_availability_broadcast != m_current_availability || m_last_availability_broadcast_time + AVAILABILITY_BROADCAST_DURATION < current_time)
     {
-      m_client.publish(m_availability_topic, m_current_availability ? AVAILABILITY_ONLINE : AVAILABILITY_OFFLINE);
+      m_last_publish_successful = m_client.publish(m_availability_topic, m_current_availability ? AVAILABILITY_ONLINE : AVAILABILITY_OFFLINE);
       m_last_availability_broadcast = m_current_availability;
-      m_last_availability_broadcast = m_last_availability_broadcast;
+      m_last_availability_broadcast_time = current_time;
       Serial << "Availability is now: " << m_current_availability << endl;
     }
   }
@@ -319,9 +340,14 @@ private:
     }
   }
 
-  static void _reconnect()
+  static bool _reconnect()
   {
-    while(!m_client.connected())
+    if(m_client.connected())
+    {
+      return true;
+    }
+
+    for(unsigned i = 0; i < 10; ++i)
     {
       Serial << "Attempting MQTT connection to " << MQTT_USER << '@' << MQTT_HOST << ':' << MQTT_PORT << "...";
       if (m_client.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASSWORD))
@@ -333,6 +359,8 @@ private:
           m_client.subscribe(curr->m_cmd_topic);
           curr = curr->m_next;
         }
+        m_last_publish_successful = true; // This will immediately get turned back to false if publish fails.
+        return true;
       }
       else
       {
@@ -340,12 +368,13 @@ private:
         delay(5000);
       }
     }
+    return false;
   }
-
 };
 
 PubSubClient MQTTManager::m_client(gWiFiClient);
 MQTTManager* MQTTManager::m_head(nullptr);
+bool MQTTManager::m_last_publish_successful = true;
 
 /* Door Logic */
 
@@ -391,6 +420,12 @@ public:
   {
     if(millis() <= m_debounce_until)
     {
+      return;
+    }
+
+    if(!MQTTManager::connected())
+    {
+      Serial << "MQTTManager is not connected." << endl;
       return;
     }
 
@@ -618,6 +653,11 @@ void setup()
 
 void loop()
 {
+  if(!MQTTManager::connected())
+  {
+    disconnect_wifi();
+  }
+
   connect_wifi();
   MQTTManager::loop();
   for(int i = 0; i < NUM_DOORS; ++i)

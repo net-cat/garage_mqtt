@@ -6,15 +6,15 @@
 #define _CMD_TOPIC_SUFFIX "/set"
 #define _AVAILABILITY_TOPIC_SUFFIX "/available"
 
-#define _WIFI_SSID "your wifi ssid";
-#define _WIFI_PASSPHRASE "your wifi passphrase";
+#define _WIFI_SSID "your wifi ssid"
+#define _WIFI_PASSPHRASE "your wifi passphrase"
 #define _WIFI_STATUS_PIN 2
 
-#define _MQTT_HOST "your.mqtt.broker.example.com";
-#define _MQTT_PORT 1883;
-#define _MQTT_USER "your_mqtt_user";
-#define _MQTT_PASSWORD "your_mqtt_password";
-#define _MQTT_CLIENT_ID "string_to_identify_device";
+#define _MQTT_HOST "your.mqtt.broker.example.com"
+#define _MQTT_PORT 1883
+#define _MQTT_USER "your_mqtt_user"
+#define _MQTT_PASSWORD "your_mqtt_password"
+#define _MQTT_CLIENT_ID "string_to_identify_device"
 
 #define _AVAILABILITY_BROADCAST_DURATION 3600000
 
